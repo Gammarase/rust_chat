@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Chat!</title>
+
+    <style>
+      :root {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+          Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        font-size: 18px;
+      }
+
+      input[type='text'] {
+        font-size: inherit;
+      }
+
+      #log {
+        width: 30em;
+        height: 20em;
+        overflow: auto;
+        margin: 0.5em 0;
+        border: 1px solid black;
+      }
+
+      #status {
+        padding: 0 0.2em;
+      }
+
+      #text {
+        width: 17em;
+        padding: 0.5em;
+      }
+
+      .msg {
+        margin: 0;
+        padding: 0.25em 0.5em;
+      }
+
+      .msg--status {
+        background-color: #ffffc9;
+      }
+
+      .msg--message {
+        background-color: #d2f4ff;
+      }
+
+      .msg--error {
+        background-color: pink;
+      }
+
+      #prompt {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        border: 1px solid black;
+        padding: 1em;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5em;
+      }
+
+      #chat-ui {
+        display: none;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>Chat!</h1>
+
+    <div id="chat-ui">
+      <div>
+        <button id="connect">Connect</button>
+        <span>Status:</span>
+        <span id="status">disconnected</span>
+      </div>
+
+      <div id="log"></div>
+
+      <form id="chatform">
+        <input type="text" id="text" autocomplete="off" />
+        <input type="submit" id="send" value='send' />
+      </form>
+    </div>
+
+    <div id="prompt">
+      <label>
+        Username:
+        <input type="text" id="username" />
+      </label>
+      <label>
+        Chat Name:
+        <input type="text" id="chatname" />
+      </label>
+      <button id="startChat">Start Chat</button>
+    </div>
+
+    <script>
+      const $status = document.querySelector('#status')
+      const $connectButton = document.querySelector('#connect')
+      const $log = document.querySelector('#log')
+      const $form = document.querySelector('#chatform')
+      const $input = document.querySelector('#text')
+      const $prompt = document.querySelector('#prompt')
+      const $username = document.querySelector('#username')
+      const $chatname = document.querySelector('#chatname')
+      const $startChat = document.querySelector('#startChat')
+      const $chatUI = document.querySelector('#chat-ui')
+
+      let username = ''
+      let chatname = ''
+
+      /** @type {WebSocket | null} */
+      var socket = null
+
+      function log(msg, type = 'status') {
+        $log.innerHTML += `<p class="msg msg--${type}">${msg}</p>`
+        $log.scrollTop += 1000
+      }
+
+      function clearLog() {
+        $log.innerHTML = ''
+      }
+      
+      async function fetchChatHistory(chatname) {
+        try {
+          const response = await fetch(`/messages/${chatname}`)
+          if (response.ok) {
+            const messages = await response.json()
+            messages.forEach(msg => log(`[History] ${msg.content}`, 'message'))
+          } else {
+            log('Failed to fetch chat history', 'error')
+          }
+        } catch (err) {
+          log('Error fetching chat history', 'error')
+        }
+      }
+
+      function connect() {
+        disconnect()
+
+        const { location } = window
+
+        const proto = location.protocol.startsWith('https') ? 'wss' : 'ws'
+        const wsUri = `${proto}://${location.host}/ws`
+
+        log('Connecting...')
+        socket = new WebSocket(wsUri)
+
+        socket.onopen = () => {
+          log('Connected')
+          socket.send(`/name ${username}`)
+          socket.send(`/join ${chatname}`)
+          updateConnectionStatus()
+        }
+
+        socket.onmessage = ev => {
+          log(ev.data, 'message')
+        }
+
+        socket.onclose = () => {
+          log('Disconnected')
+          socket = null
+          updateConnectionStatus()
+        }
+      }
+
+      function disconnect() {
+        if (socket) {
+          log('Disconnecting...')
+          socket.close()
+          socket = null
+
+          updateConnectionStatus()
+        }
+      }
+
+      function updateConnectionStatus() {
+        if (socket) {
+          $status.style.backgroundColor = 'transparent'
+          $status.style.color = 'green'
+          $status.textContent = `connected`
+          $connectButton.innerHTML = 'Disconnect'
+          $input.focus()
+          $prompt.style.display = 'none'
+          $chatUI.style.display = 'block'
+        } else {
+          $status.style.backgroundColor = 'red'
+          $status.style.color = 'white'
+          $status.textContent = 'disconnected'
+          $connectButton.textContent = 'Connect'
+          $prompt.style.display = 'flex'
+          $chatUI.style.display = 'none'
+          clearLog()
+        }
+      }
+
+      $connectButton.addEventListener('click', () => {
+        if (socket) {
+          disconnect()
+        } else {
+          connect()
+        }
+
+        updateConnectionStatus()
+      })
+
+      $form.addEventListener('submit', ev => {
+        ev.preventDefault()
+
+        const text = $input.value.trim()
+        if (text.startsWith('/')) {
+          $input.value = ''
+          return
+        }
+
+        if(text){
+          log(`Sending: ${text}`)
+          socket.send(text)
+        }
+
+        $input.value = ''
+        $input.focus()
+      })
+
+      $startChat.addEventListener('click', async () => {
+        username = $username.value.trim()
+        chatname = $chatname.value.trim()
+
+        if (!username || !chatname) {
+          alert('Both username and chat name are required')
+          return
+        }
+
+        // $prompt.style.display = 'none'
+        await fetchChatHistory(chatname)
+        // $chatUI.style.display = 'block'
+
+        connect()
+      })
+
+      updateConnectionStatus()
+    </script>
+  </body>
+</html>
